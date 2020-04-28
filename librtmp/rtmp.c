@@ -1095,7 +1095,7 @@ RTMP_GetNextMediaPacket(RTMP *r, RTMPPacket *packet)
   while (!bHasMediaPacket && RTMP_IsConnected(r)
 	 && RTMP_ReadPacket(r, packet))
     {
-      if (!RTMPPacket_IsReady(packet))
+      if (!RTMPPacket_IsReady(packet) || !packet->m_nBodySize)
 	{
 	  continue;
 	}
@@ -1227,6 +1227,7 @@ RTMP_ClientPacket(RTMP *r, RTMPPacket *packet)
       /* metadata (notify) */
       RTMP_Log(RTMP_LOGDEBUG, "%s, received: notify %u bytes", __FUNCTION__,
 	  packet->m_nBodySize);
+      bHasMediaPacket = 1;
       if (HandleMetadata(r, packet->m_body, packet->m_nBodySize))
 	bHasMediaPacket = 1;
       break;
@@ -3621,6 +3622,11 @@ RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
 	      header -= cSize;
 	      hSize += cSize;
 	    }
+          if (t >= 0xffffff)
+            {
+              header -= 4;
+              hSize += 4;
+            }
 	  *header = (0xc0 | c);
 	  if (cSize)
 	    {
@@ -3629,6 +3635,11 @@ RTMP_SendPacket(RTMP *r, RTMPPacket *packet, int queue)
 	      if (cSize == 2)
 		header[2] = tmp >> 8;
 	    }
+          if (t >= 0xffffff)
+            {
+              char* extendedTimestamp = header + 1 + cSize;
+              AMF_EncodeInt32(extendedTimestamp, extendedTimestamp + 4, t);
+            }
 	}
     }
   if (tbuf)
@@ -4054,6 +4065,11 @@ Read_1_Packet(RTMP *r, char *buf, unsigned int buflen)
 	      nPacketLen);
 	  ret = RTMP_READ_IGNORE;
 	  break;
+	}
+
+    if(packet.m_packetType != RTMP_PACKET_TYPE_AUDIO && packet.m_packetType != RTMP_PACKET_TYPE_VIDEO && packet.m_packetType != RTMP_PACKET_TYPE_INFO){
+	    RTMP_Log(RTMP_LOGDEBUG, "ignoring pkt type: %d, size: %d,",
+	            packet.m_packetType, nPacketLen);
 	}
 
       if (r->m_read.flags & RTMP_READ_SEEKING)
